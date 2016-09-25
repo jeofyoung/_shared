@@ -1,1 +1,1 @@
-# _shared
+Shared project files
