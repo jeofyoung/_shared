@@ -1,0 +1,127 @@
+## TODO
+# o create timestamp to coordinate test and code coverage
+
+
+
+# INIT
+#==========
+ifeq ($(OS),Windows_NT)
+	EXE_EXT := .exe
+else
+	EXE_EXT :=
+endif
+executable = myprog$(EXE_EXT)
+test_exe = mytest$(EXE_EXT)
+
+CXX = g++
+CODE_COVERAGE_FLAGS = -ftest-coverage -fprofile-arcs -g
+CXXFLAGS += -g -Wall -Wextra -std=c++11	$(CODE_COVERAGE_FLAGS)
+CODE_COVERAGE_LFLAGS = -lgcov --coverage
+LFLAGS += $(CODE_COVERAGE_LFLAGS)
+
+GTEST_DIR = ../googletest
+GTEST_INCLUDE_DIR = $(GTEST_DIR)/googletest/include
+GTEST_BUILD_DIR = $(GTEST_DIR)/build
+DOXYGEN_CONFIG = ../_shared/doxygen.config
+
+CC_DIR = derived/code_coverage
+
+
+# BUILD
+#=============
+build : rebuild  # default goal
+tbuild : trebuild run_coverage
+clean : clean_covdata
+	rm -f *.o $(executable)
+	rm -f test/*.o test/$(test_exe)
+	rm -f *.gcno test/*.gcno
+rebuild : clean $(executable)
+trebuild : clean texecutable
+
+clean_covdata :
+	rm -f *.gcda test/*.gcda
+	rm -f *.gcov test/*.gcov
+	rm -rf $(CC_DIR)
+
+build_doc :
+	mkdir -p derived/doxygen
+	rm -rf derived/doxygen/*
+	doxygen "$(DOXYGEN_CONFIG)"
+
+# SRC
+#=============
+SRCS = $(filter-out main.cpp, $(wildcard *.cpp))
+OBJS = $(SRCS:.cpp=.o)
+
+%.o : %.cpp
+	$(CXX) $(CXXFLAGS) -c $^ -I $(GTEST_INCLUDE_DIR) -o $@
+
+build_src_objs : $(OBJS) 
+	@echo "-->> Done building src ... "
+
+$(executable) : build_src_objs
+	$(CXX) $(CXXFLAGS) $(LFLAGS) main.cpp $(OBJS) -o $@
+
+
+
+# TEST
+#==============
+TEST_SRCS = $(wildcard test/*.cpp)
+TEST_OBJS = $(TEST_SRCS:.cpp=.o)
+
+runtest : test/$(test_exe)
+	./test/$(test_exe)
+
+texecutable : runtest $(executable)
+
+test/$(test_exe) : $(OBJS) $(TEST_OBJS)
+	$(CXX) $(CXXFLAGS) $(LFLAGS) $^ \
+		-I $(GTEST_INCLUDE_DIR) -pthread \
+		$(GTEST_BUILD_DIR)/googlemock/libgmock.a \
+		$(GTEST_BUILD_DIR)/googlemock/libgmock_main.a \
+		-o $@
+
+
+# CODE COVERAGE
+#==================
+TEST_COV_DATA = $(TEST_SRCS:.cpp=.gcno)
+TEST_COV_PROFILE = $(TEST_SRCS:.cpp=.gcda)
+
+# Let the object file rule build gcno
+%.gcno : %.cpp
+	ls -alt $@
+
+%.gcda : test/$(test_exe)
+	./test/$(test_exe)
+
+run_coverage : $(TEST_COV_DATA) $(TEST_COV_PROFILE) priv_do_run_coverage
+
+# STOP! Call run_coverage instead
+# Just run coverage - only gitlab calls this since the cloned archive is always
+# newer than build artifacts so calling run_coverage always triggers rebuild
+# TODO: is there a better way?
+priv_do_run_coverage :
+	mkdir -p $(CC_DIR)
+	rm -rf $(CC_DIR)/*
+	find test/ -type f \( -name \*.cpp -o -name \*.c \) -print0 | xargs -0 gcov -r
+	@echo "-->> Backup gcov files to derived ... "
+	find . -maxdepth 1 -type f -name \*.gcov -print0 | xargs -0 -I '{}' -t cp '{}' $(CC_DIR)/
+	mkdir -p $(CC_DIR)/test && \
+		find test/ -maxdepth 1 -type f -name \*.gcov -print0 | xargs -0 -I '{}' -t cp '{}' $(CC_DIR)/test/
+	@echo "-->> Generate code coverage HTML report ... "
+	bash -c "lcov --no-external --capture --directory . \
+			 	  --output-file $(CC_DIR)/cc.info"
+	@echo "-->> Remove tests from HTML coverage report ... "
+	bash -c "lcov --remove $(CC_DIR)/cc.info $(TEST_SRCS) \
+			 	  --output-file $(CC_DIR)/cc_srcs.info"
+	bash -c "genhtml $(CC_DIR)/cc_srcs.info --output-directory $(CC_DIR)/"
+
+
+# DEBUG_MAKE
+#===============
+run_diagnostics : $(TEST_COV_DATA) $(TEST_COV_PROFILE)
+	echo $(shell pwd)
+	echo "$(TEST_COV_DATA) $(TEST_COV_PROFILE)"
+	echo "test/$(test_exe)"
+	echo $(shell uname)
+	bash -c "ls"

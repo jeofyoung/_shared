@@ -1,0 +1,101 @@
+image: gcc
+
+before_script:
+    # Install tools
+        - apt-get update
+        - apt-get -y install tree build-essential libboost-all-dev cmake flex bison
+
+
+stages:
+    - build
+    - test
+    - after_test
+    - deploy
+
+
+build:src:
+    stage: build
+    script:
+        - make -f makefile.gitlab build_src_objs
+    artifacts:
+        untracked: true
+
+
+test:
+    stage: test
+    dependencies:
+        - build:src
+    script:
+      # Build gtest
+        - cd $CI_PROJECT_DIR/../
+        - "git clone https://github.com/google/googletest"
+        - cd $CI_PROJECT_DIR/../googletest
+        - mkdir build
+        - cd build
+        - "cmake ../"
+        - make
+      # Make sure we go back to project dir
+        - cd $CI_PROJECT_DIR
+      # Build and run test
+        - "tree"
+        - make -f makefile.gitlab runtest
+      # Verify
+        - echo "Y>> Test done ..."
+        - ls -alt test/
+    artifacts:
+        untracked: true
+
+test:coverage:
+    stage: after_test
+    dependencies:
+        - build:src
+        - test
+    script:
+        - apt-get -y install lcov
+        - echo "Y>> Coverage entry ..."
+        - tree
+        - ls -alt test/
+      # Generate coverage reports
+        - make -f makefile.gitlab priv_do_run_coverage
+      # Verify
+        - echo "Y>> Coverage done ..."
+        - tree
+    artifacts:
+        paths:
+            - derived/code_coverage/
+
+
+doxygen:
+    stage: after_test
+    script:
+        - apt-get -y install doxygen
+        - echo "Y>> Doxygen entry ..."
+        - tree
+      # Get doxygen config
+        - cd $CI_PROJECT_DIR/../
+        - "git clone https://github.com/jeofyoung/_shared"
+        - tree
+        - cd $CI_PROJECT_DIR
+      # Generate doc
+        - make -f makefile.gitlab build_doc
+    artifacts:
+        paths:
+            - derived/doxygen/
+
+
+
+pages:
+    stage: deploy
+    dependencies:
+        - doxygen
+        - test:coverage
+    script:
+      # Publish
+        - mv derived/doxygen public/
+        - mv derived/code_coverage public/
+        - echo "Y>> Pages done ..."
+        - tree
+    artifacts:
+        paths:
+            - public/
+
