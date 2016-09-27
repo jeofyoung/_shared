@@ -68,7 +68,7 @@ test:coverage:
 doxygen:
     stage: after_test
     script:
-        - apt-get -y install doxygen
+        - apt-get -y install doxygen graphviz
         - echo "Y>> Doxygen entry ..."
         - tree
       # Get doxygen config
